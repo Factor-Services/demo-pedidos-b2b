@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Papel {
+  representante
+  financeiro
+  expedicao
+  admin
+}
+
+enum StatusPedido {
+  rascunho
+  enviado
+  aguardando_credito
+  aprovado
+  recusado
+  faturado
+  entregue
+  cancelado
+}
+
+model Usuario {
+  id        String   @id @default(cuid())
+  nome      String
+  email     String   @unique
+  senhaHash String
+  papel     Papel
+  pedidos   Pedido[] @relation("Representante")
+  criadoEm  DateTime @default(now())
+}
+
+model Cliente {
+  id                  String   @id @default(cuid())
+  razaoSocial         String
+  cnpj                String   @unique
+  segmento            String
+  limiteCreditoCentavos Int    @default(0)
+  /// Soma dos pedidos aprovados e faturados ainda não pagos. Atualizado pelo job de conciliação noturno.
+  emAbertoCentavos    Int      @default(0)
+  bloqueado           Boolean  @default(false)
+  pedidos             Pedido[]
+  criadoEm            DateTime @default(now())
+}
+
+model Produto {
+  id                 String       @id @default(cuid())
+  sku                String       @unique
+  nome               String
+  precoCentavos      Int
+  estoque            Int          @default(0)
+  ativo              Boolean      @default(true)
+  itens              ItemPedido[]
+}
+
+model Pedido {
+  id               String        @id @default(cuid())
+  numero           Int           @unique @default(autoincrement())
+  clienteId        String
+  cliente          Cliente       @relation(fields: [clienteId], references: [id])
+  representanteId  String
+  representante    Usuario       @relation("Representante", fields: [representanteId], references: [id])
+  status           StatusPedido  @default(rascunho)
+  totalCentavos    Int           @default(0)
+  observacao       String?
+  itens            ItemPedido[]
+  analiseCredito   AnaliseCredito?
+  eventos          EventoPedido[]
+  criadoEm         DateTime      @default(now())
+  enviadoEm        DateTime?
+  decisaoCreditoEm DateTime?
+  faturadoEm       DateTime?
+}
+
+model ItemPedido {
+  id                    String  @id @default(cuid())
+  pedidoId              String
+  pedido                Pedido  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  produtoId             String
+  produto               Produto @relation(fields: [produtoId], references: [id])
+  quantidade            Int
+  precoUnitarioCentavos Int
+}
+
+/// A análise do financeiro quando o pedido passa do limite. Hoje é sempre manual.
+model AnaliseCredito {
+  id            String   @id @default(cuid())
+  pedidoId      String   @unique
+  pedido        Pedido   @relation(fields: [pedidoId], references: [id])
+  excedenteCentavos Int
+  decisao       String?  // "aprovado" | "recusado"
+  justificativa String?
+  analistaId    String?
+  abertaEm      DateTime @default(now())
+  decididaEm    DateTime?
+}
+
+model EventoPedido {
+  id        String   @id @default(cuid())
+  pedidoId  String
+  pedido    Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  de        StatusPedido?
+  para      StatusPedido
+  autorId   String
+  criadoEm  DateTime @default(now())
+}
